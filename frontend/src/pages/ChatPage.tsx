@@ -9,6 +9,7 @@ import {
   type Message,
 } from "../api/conversations";
 import { retrievalSearch, type RetrievalResult } from "../api/retrieval";
+import { useAuthStore } from "../store/auth";
 
 // ─── RAG 答案卡片 ─────────────────────────────────────────────────────────────
 
@@ -337,6 +338,9 @@ function MessageItem({ msg }: { msg: UIMessage }) {
 // ─── 主页面 ──────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
+  const user = useAuthStore((s) => s.user);
+  const isStudent = user?.role === "student";
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [uiMessages, setUiMessages] = useState<UIMessage[]>([]);
@@ -469,8 +473,8 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-full gap-0 overflow-hidden">
-      {/* 左侧会话列表（检索模式隐藏） */}
-      {!retrievalMode && (
+      {/* 左侧会话列表（检索模式 / 学员模式隐藏） */}
+      {!isStudent && !retrievalMode && (
         <aside className="flex w-52 shrink-0 flex-col border-r border-gray-200 bg-white">
           <div className="flex items-center justify-between border-b border-gray-100 px-3 py-3">
             <span className="text-xs font-semibold text-gray-500">会话列表</span>
@@ -509,27 +513,29 @@ export default function ChatPage() {
 
       {/* 右侧消息区 */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* 模式切换栏 */}
-        <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2">
-          <span className="text-xs text-gray-500">
-            {retrievalMode
-              ? "检索测试模式 — 直接返回知识库匹配片段"
-              : "RAG 问答模式 — 知识库检索 + DeepSeek 智能答疑"}
-          </span>
-          <label className="flex cursor-pointer select-none items-center gap-2">
-            <span className="text-xs font-medium text-gray-600">检索测试模式</span>
-            <div className="relative">
-              <input
-                type="checkbox"
-                className="sr-only"
-                checked={retrievalMode}
-                onChange={(e) => { setRetrievalMode(e.target.checked); setUiMessages([]); }}
-              />
-              <div className={`h-5 w-9 rounded-full transition-colors ${retrievalMode ? "bg-indigo-600" : "bg-gray-300"}`} />
-              <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${retrievalMode ? "translate-x-4" : "translate-x-0"}`} />
-            </div>
-          </label>
-        </div>
+        {/* 模式切换栏（学员模式隐藏） */}
+        {!isStudent && (
+          <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-2">
+            <span className="text-xs text-gray-500">
+              {retrievalMode
+                ? "检索测试模式 — 直接返回知识库匹配片段"
+                : "RAG 问答模式 — 知识库检索 + DeepSeek 智能答疑"}
+            </span>
+            <label className="flex cursor-pointer select-none items-center gap-2">
+              <span className="text-xs font-medium text-gray-600">检索测试模式</span>
+              <div className="relative">
+                <input
+                  type="checkbox"
+                  className="sr-only"
+                  checked={retrievalMode}
+                  onChange={(e) => { setRetrievalMode(e.target.checked); setUiMessages([]); }}
+                />
+                <div className={`h-5 w-9 rounded-full transition-colors ${retrievalMode ? "bg-indigo-600" : "bg-gray-300"}`} />
+                <div className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${retrievalMode ? "translate-x-4" : "translate-x-0"}`} />
+              </div>
+            </label>
+          </div>
+        )}
 
         {/* 消息列表 */}
         <div className="flex-1 space-y-4 overflow-y-auto bg-gray-50 p-4">
@@ -537,7 +543,11 @@ export default function ChatPage() {
             <p className="mt-8 text-center text-sm text-gray-400">加载历史消息…</p>
           ) : uiMessages.length === 0 ? (
             <p className="mt-12 text-center text-sm text-gray-400">
-              {retrievalMode ? "输入关键词，检索知识库中最相关的片段" : "开始一个 Python 学习问题吧 🐍"}
+              {retrievalMode
+                ? "输入关键词，检索知识库中最相关的片段"
+                : isStudent
+                ? "有什么 Python 问题？随时问我 🐍"
+                : "开始一个 Python 学习问题吧 🐍"}
             </p>
           ) : (
             uiMessages.map((msg, i) => <MessageItem key={i} msg={msg} />)
