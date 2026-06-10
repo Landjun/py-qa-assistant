@@ -4,7 +4,6 @@ import { login } from "../api/auth";
 import { useAuthStore } from "../store/auth";
 
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const passwordRe = /^\d{6}$/;
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -19,7 +18,7 @@ export default function LoginPage() {
     if (!email.trim()) return "请输入邮箱";
     if (!emailRe.test(email)) return "邮箱格式不正确";
     if (!password) return "请输入密码";
-    if (!passwordRe.test(password)) return "密码必须是 6 位数字";
+    if (password.length < 6) return "密码至少 6 位";
     return "";
   };
 
@@ -67,14 +66,13 @@ export default function LoginPage() {
 
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">
-              密码（6 位数字）
+              密码
             </label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••"
-              maxLength={6}
+              placeholder="请输入密码"
               className="w-full rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               autoComplete="current-password"
               disabled={loading}
