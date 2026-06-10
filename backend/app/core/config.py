@@ -18,11 +18,12 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-chat"
 
-    # DashScope（Embedding / Rerank）
+    # DashScope（Embedding / Rerank / Vision，复用同一 Key）
     dashscope_api_key: str = ""
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     embedding_model: str = "text-embedding-v4"
     rerank_model: str = "qwen3-rerank"
+    vision_model: str = "qwen-vl-max"
 
     # 存储
     database_url: str = "sqlite:///./data/app.db"

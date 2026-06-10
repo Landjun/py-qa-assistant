@@ -57,6 +57,13 @@ export interface RAGAnswer {
   bug_detail?: BugDetail;
 }
 
+export interface ImageUnderstanding {
+  image_type: string;
+  ocr_text: string;
+  summary: string;
+  detected_error: string;
+}
+
 export interface RAGResponse {
   success: boolean;
   answer: RAGAnswer | null;
@@ -66,15 +73,18 @@ export interface RAGResponse {
   intent: string;
   confidence: number;
   resolved_question: string;
+  image_understanding: ImageUnderstanding | null;
 }
 
 export async function ask(
   message: string,
   conversationId?: number,
+  imageBase64?: string,
 ): Promise<RAGResponse> {
   const res = await client.post<RAGResponse>("/chat/ask", {
     message,
     conversation_id: conversationId ?? null,
+    image_base64: imageBase64 ?? null,
   });
   return res.data;
 }

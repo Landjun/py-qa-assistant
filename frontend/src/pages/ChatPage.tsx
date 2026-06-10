@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { ask, type RAGAnswer, type BugDetail, type SourceInfo } from "../api/chat";
+import { ask, type RAGAnswer, type BugDetail, type SourceInfo, type ImageUnderstanding } from "../api/chat";
 import {
   listConversations,
   getMessages,
@@ -30,6 +30,23 @@ function SourcesPanel({ sources }: { sources: SourceInfo[] }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ImageBadge({ iu }: { iu: ImageUnderstanding }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded bg-purple-50 px-3 py-1.5 text-xs text-purple-700">
+      <span>📷</span>
+      <span className="font-medium">已识别图片：{iu.image_type}</span>
+      {iu.detected_error && (
+        <span className="rounded bg-purple-100 px-1.5 py-0.5 font-mono text-purple-800">
+          {iu.detected_error}
+        </span>
+      )}
+      {iu.summary && (
+        <span className="text-purple-500">— {iu.summary}</span>
+      )}
     </div>
   );
 }
@@ -270,7 +287,13 @@ const INTENT_COLOR: Record<string, string> = {
 
 type UIMessage =
   | { role: "user"; text: string }
-  | { role: "rag-assistant"; answer: RAGAnswer; durationMs?: number; intent?: string }
+  | {
+      role: "rag-assistant";
+      answer: RAGAnswer;
+      durationMs?: number;
+      intent?: string;
+      imageUnderstanding?: ImageUnderstanding;
+    }
   | { role: "retrieval"; query: string; results: RetrievalResult[]; durationMs: number }
   | { role: "error"; text: string };
 
@@ -303,7 +326,8 @@ function MessageItem({ msg }: { msg: UIMessage }) {
   if (msg.role === "rag-assistant") {
     return (
       <div className="flex justify-start">
-        <div className="w-full max-w-[92%]">
+        <div className="w-full max-w-[92%] space-y-1.5">
+          {msg.imageUnderstanding && <ImageBadge iu={msg.imageUnderstanding} />}
           {msg.answer.bug_detail ? (
             <BugAnswerCard
               bug={msg.answer.bug_detail}
@@ -335,6 +359,11 @@ function MessageItem({ msg }: { msg: UIMessage }) {
   );
 }
 
+// ─── 图片处理工具 ─────────────────────────────────────────────────────────────
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/jpg", "image/webp"];
+
 // ─── 主页面 ──────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
@@ -348,6 +377,12 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [retrievalMode, setRetrievalMode] = useState(false);
+
+  // 图片状态
+  const [pendingImageBase64, setPendingImageBase64] = useState<string | null>(null);
+  const [pendingImagePreview, setPendingImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const fetchConversations = useCallback(async () => {
@@ -364,6 +399,51 @@ export default function ChatPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [uiMessages, loading]);
 
+  // ─── 图片处理 ───────────────────────────────────────────────────────────────
+
+  function processImageFile(file: File) {
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      alert("仅支持 PNG / JPG / WebP 格式的图片");
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      alert(`图片大小 ${(file.size / 1024 / 1024).toFixed(1)}MB 超过 5MB 限制，请压缩后重试`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setPendingImagePreview(dataUrl);
+      setPendingImageBase64(dataUrl.split(",")[1]);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) processImageFile(file);
+    e.target.value = "";
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = Array.from(e.clipboardData.items);
+    const imageItem = items.find((item) => item.type.startsWith("image/"));
+    if (imageItem) {
+      const file = imageItem.getAsFile();
+      if (file) {
+        e.preventDefault();
+        processImageFile(file);
+      }
+    }
+  }
+
+  function clearImage() {
+    setPendingImageBase64(null);
+    setPendingImagePreview(null);
+  }
+
+  // ─── 会话操作 ───────────────────────────────────────────────────────────────
+
   async function selectConversation(conv: Conversation) {
     if (activeId === conv.id) return;
     setActiveId(conv.id);
@@ -378,7 +458,6 @@ export default function ChatPage() {
         if (parsed) {
           return { role: "rag-assistant", answer: parsed.answer, intent: parsed.intent, durationMs: extra?.duration_ms };
         }
-        // 兼容旧 /simple 会话历史
         return {
           role: "rag-assistant",
           answer: {
@@ -403,6 +482,7 @@ export default function ChatPage() {
     setActiveId(null);
     setUiMessages([]);
     setInput("");
+    clearImage();
   }
 
   async function handleDelete(conv: Conversation, e: React.MouseEvent) {
@@ -416,11 +496,18 @@ export default function ChatPage() {
     }
   }
 
+  // ─── 发送 ────────────────────────────────────────────────────────────────────
+
   async function handleSend() {
     const q = input.trim();
-    if (!q || loading) return;
-    setUiMessages((prev) => [...prev, { role: "user", text: q }]);
+    if (!q && !pendingImageBase64) return;
+    if (loading) return;
+
+    const userText = q || "（发送了一张图片）";
+    setUiMessages((prev) => [...prev, { role: "user", text: userText }]);
+    const imageToSend = pendingImageBase64;
     setInput("");
+    clearImage();
     setLoading(true);
 
     if (retrievalMode) {
@@ -439,9 +526,9 @@ export default function ChatPage() {
       return;
     }
 
-    // RAG 问答模式（默认）
+    // RAG 问答模式
     try {
-      const res = await ask(q, activeId ?? undefined);
+      const res = await ask(q, activeId ?? undefined, imageToSend ?? undefined);
       if (res.conversation_id && res.conversation_id !== activeId) {
         setActiveId(res.conversation_id);
         await fetchConversations();
@@ -449,7 +536,13 @@ export default function ChatPage() {
       if (res.success && res.answer) {
         setUiMessages((prev) => [
           ...prev,
-          { role: "rag-assistant", answer: res.answer!, durationMs: res.duration_ms, intent: res.intent || undefined },
+          {
+            role: "rag-assistant",
+            answer: res.answer!,
+            durationMs: res.duration_ms,
+            intent: res.intent || undefined,
+            imageUnderstanding: res.image_understanding ?? undefined,
+          },
         ]);
       } else {
         setUiMessages((prev) => [
@@ -566,10 +659,57 @@ export default function ChatPage() {
 
         {/* 输入区 */}
         <div className="border-t border-gray-200 bg-white px-4 py-3">
-          <div className="flex gap-2">
+          {/* 图片预览缩略图 */}
+          {pendingImagePreview && (
+            <div className="mb-2 flex items-center gap-2">
+              <div className="relative">
+                <img
+                  src={pendingImagePreview}
+                  alt="待发送图片"
+                  className="h-16 w-16 rounded border border-gray-200 object-cover"
+                />
+                <button
+                  onClick={clearImage}
+                  className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-gray-600 text-[10px] text-white hover:bg-red-500"
+                >
+                  ✕
+                </button>
+              </div>
+              <span className="text-xs text-gray-400">图片已选，发送时一起提交</span>
+            </div>
+          )}
+
+          <div className="flex gap-2" onPaste={handlePaste}>
+            {/* 隐藏文件输入 */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            {/* 图片上传按钮 */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={loading}
+              title="上传图片（支持 PNG / JPG / WebP，可粘贴截图）"
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded border text-base transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                pendingImagePreview
+                  ? "border-purple-400 bg-purple-50 text-purple-600"
+                  : "border-gray-300 bg-white text-gray-500 hover:border-blue-400 hover:text-blue-500"
+              }`}
+            >
+              📷
+            </button>
             <input
               className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 disabled:bg-gray-50"
-              placeholder={retrievalMode ? "输入检索关键词，Enter 检索…" : "输入 Python 学习问题，Enter 发送…"}
+              placeholder={
+                retrievalMode
+                  ? "输入检索关键词，Enter 检索…"
+                  : pendingImagePreview
+                  ? "可补充文字说明（可留空直接发送）…"
+                  : "输入 Python 问题，或粘贴截图，Enter 发送…"
+              }
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -577,7 +717,7 @@ export default function ChatPage() {
             />
             <button
               onClick={handleSend}
-              disabled={!input.trim() || loading}
+              disabled={(!input.trim() && !pendingImageBase64) || loading}
               className={`rounded px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-50 ${
                 retrievalMode ? "bg-indigo-600 hover:bg-indigo-700" : "bg-blue-600 hover:bg-blue-700"
               }`}
