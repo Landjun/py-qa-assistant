@@ -7,6 +7,7 @@ import DocumentPage from "../pages/DocumentPage";
 import LogPage from "../pages/LogPage";
 import SettingPage from "../pages/SettingPage";
 import PlaceholderPage from "../pages/PlaceholderPage";
+import CoursePage from "../pages/CoursePage";
 import { useAuthStore } from "../store/auth";
 
 function ProtectedRoute() {
@@ -35,18 +36,13 @@ export const router = createBrowserRouter([
         children: [
           { index: true, element: <Navigate to="/chat" replace /> },
           { path: "chat", element: <ChatPage /> },
+          { path: "courses", element: <CoursePage /> },
           {
             element: <RoleGuard allowedRoles={["admin", "teacher"]} />,
             children: [
               { path: "documents", element: <DocumentPage /> },
               { path: "logs", element: <LogPage /> },
               { path: "settings", element: <SettingPage /> },
-              {
-                path: "courses",
-                element: (
-                  <PlaceholderPage title="课程管理" description="课程内容功能即将上线，敬请期待" />
-                ),
-              },
             ],
           },
           {

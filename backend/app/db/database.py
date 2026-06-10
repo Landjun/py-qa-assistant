@@ -31,6 +31,7 @@ async def init_db() -> None:
     """应用启动时建表（表不存在则创建，已存在则跳过）。"""
     # 延迟导入，保证模型已注册到 Base.metadata
     import app.models.conversation  # noqa: F401
+    import app.models.course  # noqa: F401
     import app.models.document  # noqa: F401
     import app.models.qa_log  # noqa: F401
     import app.models.user  # noqa: F401
@@ -43,6 +44,7 @@ async def init_db() -> None:
             "ALTER TABLE qa_logs ADD COLUMN user_id INTEGER",
             "ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'student'",
             "ALTER TABLE document_chunks ADD COLUMN image_path VARCHAR(500)",
+            "ALTER TABLE document_chunks ADD COLUMN lesson_id INTEGER",
         ]
         for sql in migrations:
             try:
