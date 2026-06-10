@@ -65,6 +65,20 @@ export interface ImageUnderstanding {
   detected_error: string;
 }
 
+export interface LessonAssetRef {
+  asset_type: string;
+  filename: string;
+  url: string;
+}
+
+export interface LessonContext {
+  lesson_no: number;
+  title: string;
+  summary: string | null;
+  assets: LessonAssetRef[];
+  fallback: boolean;
+}
+
 export interface RAGResponse {
   success: boolean;
   answer: RAGAnswer | null;
@@ -75,6 +89,7 @@ export interface RAGResponse {
   confidence: number;
   resolved_question: string;
   image_understanding: ImageUnderstanding | null;
+  lesson_context: LessonContext | null;
 }
 
 export async function ask(

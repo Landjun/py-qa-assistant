@@ -39,6 +39,15 @@ class BugDetail:
 
 
 @dataclass
+class LessonInfo:
+    lesson_no: int
+    lesson_id: int
+    title: str
+    summary: str | None
+    assets: list[dict]  # [{"asset_type":..., "filename":..., "url":...}]
+
+
+@dataclass
 class RAGAnswer:
     useful: bool
     content: str
@@ -47,6 +56,7 @@ class RAGAnswer:
     sources: list[SourceInfo] = field(default_factory=list)
     no_retrieval: bool = False
     bug_detail: "BugDetail | None" = None
+    lesson_fallback: bool = False  # True → lesson-scoped search had no results, fell back to global
 
 
 # ─── 系统提示词 ────────────────────────────────────────────────────────────────
@@ -233,14 +243,47 @@ async def _call_deepseek(system: str, user_msg: str, temperature: float = 0.3, m
 
 # ─── 私有 AI 处理函数（不管理会话） ────────────────────────────────────────────
 
-async def _rag_answer(db: AsyncSession, question: str, system_prompt: str, log_ctx=None) -> RAGAnswer:
-    """知识库检索 + DeepSeek，返回 RAGAnswer（不管理会话）。"""
-    no_retrieval = False
+def _lesson_system_suffix(lesson_info: "LessonInfo") -> str:
+    suffix = f"\n\n【当前课节】第 {lesson_info.lesson_no} 节：{lesson_info.title}"
+    if lesson_info.summary:
+        suffix += f"\n知识点摘要：{lesson_info.summary}"
+    suffix += "\n请围绕该节知识点回答。界面已为学员展示课件/代码下载链接，无需在文字中重复列出链接。"
+    return suffix
+
+
+async def _rag_answer(
+    db: AsyncSession,
+    question: str,
+    system_prompt: str,
+    lesson_id: int | None = None,
+    lesson_info: "LessonInfo | None" = None,
+    log_ctx=None,
+) -> RAGAnswer:
+    """知识库检索 + DeepSeek，返回 RAGAnswer（不管理会话）。
+
+    当 lesson_id 指定时先做课节限定检索，若无结果自动降级为全库检索（lesson_fallback=True）。
+    """
+    if lesson_info:
+        system_prompt = system_prompt + _lesson_system_suffix(lesson_info)
+
+    lesson_fallback = False
     retrieval_results = []
+    no_retrieval = False
+
     try:
-        retrieval_results, _ = await retrieval_service.search(db, question, top_k=3, score_threshold=0.5, log_ctx=log_ctx)
+        retrieval_results, _ = await retrieval_service.search(
+            db, question, top_k=3, score_threshold=0.5,
+            lesson_id=lesson_id, log_ctx=log_ctx,
+        )
+        if not retrieval_results and lesson_id is not None:
+            # 课节内无匹配内容 → 降级全库
+            lesson_fallback = True
+            logger.info("课节 %d 无检索结果，降级全库检索", lesson_id)
+            retrieval_results, _ = await retrieval_service.search(
+                db, question, top_k=3, score_threshold=0.5, log_ctx=log_ctx,
+            )
         no_retrieval = len(retrieval_results) == 0
-        logger.info("RAG 检索: %d 条结果", len(retrieval_results))
+        logger.info("RAG 检索: %d 条结果 lesson_fallback=%s", len(retrieval_results), lesson_fallback)
     except Exception as e:
         logger.warning("检索异常，降级无上下文: %s", e)
         no_retrieval = True
@@ -252,11 +295,16 @@ async def _rag_answer(db: AsyncSession, question: str, system_prompt: str, log_c
             parts.append(f"【来源：{r.source}】\n{r.content}")
             sources.append(SourceInfo(document_id=r.document_id, chunk_id=r.chunk_id, source=r.source, score=r.score, image_path=r.image_path))
         knowledge_context = "\n\n".join(parts)
+        if lesson_fallback and lesson_info:
+            knowledge_context = (
+                f"（第 {lesson_info.lesson_no} 节课件暂未入库，以下为通用知识库内容）\n\n"
+                + knowledge_context
+            )
     else:
         knowledge_context = "（暂无相关知识库内容，请根据 Python 基础知识尽量回答）"
 
     user_msg = _build_rag_user_msg(knowledge_context, question)
-    logger.info("RAG DeepSeek: system=%s knowledge_len=%d", system_prompt[:20], len(knowledge_context))
+    logger.info("RAG DeepSeek: knowledge_len=%d", len(knowledge_context))
     parsed = await _call_deepseek(system_prompt, user_msg, log_ctx=log_ctx)
 
     return RAGAnswer(
@@ -266,17 +314,36 @@ async def _rag_answer(db: AsyncSession, question: str, system_prompt: str, log_c
         code_example=str(parsed.get("code_example", "")),
         sources=sources,
         no_retrieval=no_retrieval,
+        lesson_fallback=lesson_fallback,
     )
 
 
 async def _bug_rag_answer(
-    db: AsyncSession, question: str, history_text: str = "（无历史记录）", log_ctx=None
+    db: AsyncSession,
+    question: str,
+    history_text: str = "（无历史记录）",
+    lesson_id: int | None = None,
+    lesson_info: "LessonInfo | None" = None,
+    log_ctx=None,
 ) -> RAGAnswer:
     """BUG_HELP 专用：知识库检索 + 报错排查教练提示词，返回带 BugDetail 的 RAGAnswer。"""
+    bug_system = _BUG_HELP_SYSTEM
+    if lesson_info:
+        bug_system = bug_system + _lesson_system_suffix(lesson_info)
+
+    lesson_fallback = False
     no_retrieval = False
     retrieval_results = []
     try:
-        retrieval_results, _ = await retrieval_service.search(db, question, top_k=3, score_threshold=0.4, log_ctx=log_ctx)
+        retrieval_results, _ = await retrieval_service.search(
+            db, question, top_k=3, score_threshold=0.4,
+            lesson_id=lesson_id, log_ctx=log_ctx,
+        )
+        if not retrieval_results and lesson_id is not None:
+            lesson_fallback = True
+            retrieval_results, _ = await retrieval_service.search(
+                db, question, top_k=3, score_threshold=0.4, log_ctx=log_ctx,
+            )
         no_retrieval = len(retrieval_results) == 0
         logger.info("BUG 检索: %d 条结果", len(retrieval_results))
     except Exception as e:
@@ -295,7 +362,7 @@ async def _bug_rag_answer(
 
     user_msg = _build_bug_user_msg(question, history_text, knowledge_context)
     logger.info("BUG DeepSeek: knowledge_len=%d", len(knowledge_context))
-    parsed = await _call_deepseek(_BUG_HELP_SYSTEM, user_msg, max_tokens=2000, log_ctx=log_ctx)
+    parsed = await _call_deepseek(bug_system, user_msg, max_tokens=2000, log_ctx=log_ctx)
 
     bug_detail = BugDetail(
         error_type=str(parsed.get("error_type", "")),
@@ -318,6 +385,7 @@ async def _bug_rag_answer(
         sources=sources,
         no_retrieval=no_retrieval,
         bug_detail=bug_detail,
+        lesson_fallback=lesson_fallback,
     )
 
 
@@ -359,6 +427,8 @@ async def route_by_intent(
     resolved_question: str,
     intent: str,
     history_text: str = "（无历史记录）",
+    lesson_id: int | None = None,
+    lesson_info: "LessonInfo | None" = None,
     log_ctx=None,
 ) -> tuple[RAGAnswer, int]:
     """根据意图路由到对应 AI 处理，保存 AI 回复，返回 (answer, duration_ms)。"""
@@ -369,9 +439,15 @@ async def route_by_intent(
     elif intent == "CHAT":
         answer = await _chat_answer(resolved_question, log_ctx=log_ctx)
     elif intent == "BUG_HELP":
-        answer = await _bug_rag_answer(db, resolved_question, history_text, log_ctx=log_ctx)
+        answer = await _bug_rag_answer(
+            db, resolved_question, history_text,
+            lesson_id=lesson_id, lesson_info=lesson_info, log_ctx=log_ctx,
+        )
     else:  # PYTHON_QA (default)
-        answer = await _rag_answer(db, resolved_question, _PYTHON_QA_SYSTEM, log_ctx=log_ctx)
+        answer = await _rag_answer(
+            db, resolved_question, _PYTHON_QA_SYSTEM,
+            lesson_id=lesson_id, lesson_info=lesson_info, log_ctx=log_ctx,
+        )
 
     duration_ms = int((time.monotonic() - t0) * 1000)
 

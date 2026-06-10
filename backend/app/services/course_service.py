@@ -78,6 +78,14 @@ async def update_lesson(
     return lesson
 
 
+async def find_lesson_by_no(db: AsyncSession, lesson_no: int) -> Lesson | None:
+    """按节次编号在所有课程中查找第一个匹配的课节。"""
+    result = await db.execute(
+        select(Lesson).where(Lesson.lesson_no == lesson_no).order_by(Lesson.id.asc()).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def init_48_lessons(db: AsyncSession, course_name: str = "Python 编程入门（共 48 节）") -> Course:
     """幂等：若已存在则返回已有课程，否则创建课程 + 48 个占位课节。"""
     result = await db.execute(select(Course).order_by(Course.id.asc()).limit(1))

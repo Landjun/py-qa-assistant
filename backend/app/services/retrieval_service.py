@@ -39,9 +39,14 @@ async def search(
     query: str,
     top_k: int = 3,
     score_threshold: float = 0.5,
+    lesson_id: int | None = None,
     log_ctx=None,
 ) -> tuple[list[RetrievalResult], int]:
-    """返回 (results, duration_ms)。results 按 score 降序，低于阈值的已过滤。"""
+    """返回 (results, duration_ms)。
+
+    当 lesson_id 指定时，只返回属于该课节的 chunk（lesson_id 过滤）；
+    若该课节无匹配结果，返回空列表（由调用方决定是否降级全库检索）。
+    """
     t0 = time.monotonic()
 
     if faiss_service.get_vector_count() == 0:
@@ -63,9 +68,11 @@ async def search(
         raise
 
     # Step 2: FAISS 检索 + 分数过滤
+    # lesson_id 模式需要更多候选，以弥补后续过滤导致的结果减少
     t_faiss = time.monotonic()
     try:
-        search_k = min(top_k * 3, faiss_service.get_vector_count())
+        multiplier = 8 if lesson_id is not None else 3
+        search_k = min(top_k * multiplier, faiss_service.get_vector_count())
         raw_results = await faiss_service.search(query_vec, search_k)
 
         filtered: list[tuple[int, float]] = []
@@ -73,23 +80,22 @@ async def search(
             norm_score = max(0.0, min(1.0, (raw_score + 1.0) / 2.0))
             if norm_score >= score_threshold:
                 filtered.append((chunk_id, norm_score))
-        filtered = filtered[:top_k]
+        # 不在此处截断 top_k，留到 SQLite 过滤后再截断
 
         _add_log_step(log_ctx, "faiss_search", "faiss",
-                      {"search_k": search_k, "score_threshold": score_threshold},
+                      {"search_k": search_k, "score_threshold": score_threshold, "lesson_id": lesson_id},
                       {"raw_count": len(raw_results), "filtered_count": len(filtered)},
                       t_faiss, "SUCCESS")
     except Exception as e:
         _add_log_step(log_ctx, "faiss_search", "faiss", {}, {}, t_faiss, "FAILED", str(e))
         raise
 
-    # Step 3: SQLite 回查 chunk + document 信息
+    # Step 3: SQLite 回查 chunk + document 信息，按 lesson_id 过滤
     t_retrieval = time.monotonic()
     results: list[RetrievalResult] = []
     try:
         if filtered:
             chunk_ids = [cid for cid, _ in filtered]
-            scores_map = {cid: score for cid, score in filtered}
 
             stmt = (
                 select(DocumentChunk, Document)
@@ -103,6 +109,9 @@ async def search(
                 if cid not in chunk_map:
                     continue
                 chunk, doc = chunk_map[cid]
+                # 课节过滤：跳过不属于指定课节的 chunk
+                if lesson_id is not None and chunk.lesson_id != lesson_id:
+                    continue
                 results.append(RetrievalResult(
                     content=chunk.content,
                     source=doc.title,
@@ -111,9 +120,11 @@ async def search(
                     score=round(score, 4),
                     image_path=chunk.image_path,
                 ))
+                if len(results) >= top_k:
+                    break
 
         _add_log_step(log_ctx, "retrieval", "sqlite",
-                      {"chunk_ids": [cid for cid, _ in filtered]},
+                      {"chunk_ids": [cid for cid, _ in filtered], "lesson_id": lesson_id},
                       {"result_count": len(results),
                        "sources": [r.source for r in results]},
                       t_retrieval, "SUCCESS")

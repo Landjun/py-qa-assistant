@@ -10,10 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.schemas.chat import QAResponse
 from app.models.user import User
-from app.services import conversation_service, deepseek_service, intent_service, qa_log_service, rag_service, vision_service
+from app.services import conversation_service, course_service, deepseek_service, intent_service, lesson_resolver, qa_log_service, rag_service, vision_service
 from app.services.auth_service import get_current_user, require_roles
 from app.services.intent_service import IntentResult
-from app.services.qa_log_service import QALogContext
+from app.services.qa_log_service import LogStep, QALogContext
+from app.services.rag_service import LessonInfo
 
 logger = logging.getLogger("app.api.chat")
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -65,6 +66,7 @@ class RAGResponse(BaseModel):
     confidence: float = 0.0
     resolved_question: str = ""
     image_understanding: dict | None = None
+    lesson_context: dict | None = None
 
 
 # ─── /intent 响应模型 ─────────────────────────────────────────────────────────
@@ -175,6 +177,52 @@ async def ask_rag(
     # 4. 意图识别（失败自动降级）
     intent_result = await _safe_recognize_intent(history_text, effective_message, log_ctx=log_ctx)
 
+    # 4.5 课节解析 — 从消息+历史中提取节次，并查库获取课节详情
+    lesson_info: LessonInfo | None = None
+    lesson_context: dict | None = None
+    _lesson_no = lesson_resolver.extract_lesson_no(message, history_text)
+    if _lesson_no is not None:
+        _t_resolve = time.monotonic()
+        _lesson_db = await course_service.find_lesson_by_no(db, _lesson_no)
+        if _lesson_db:
+            _assets = await course_service.list_assets(db, _lesson_db.id)
+            _asset_list = [
+                {"asset_type": a.asset_type, "filename": a.filename, "url": f"/static/{a.file_path}"}
+                for a in _assets
+            ]
+            lesson_info = LessonInfo(
+                lesson_no=_lesson_no,
+                lesson_id=_lesson_db.id,
+                title=_lesson_db.title,
+                summary=_lesson_db.summary,
+                assets=_asset_list,
+            )
+            lesson_context = {
+                "lesson_no": _lesson_no,
+                "title": _lesson_db.title,
+                "summary": _lesson_db.summary,
+                "assets": _asset_list,
+                "fallback": False,
+            }
+            log_ctx.add_step(LogStep(
+                step_name="lesson_resolve",
+                service_name="lesson_resolver",
+                input_data={"message": message[:200], "history_len": len(history_text)},
+                output_data={"lesson_no": _lesson_no, "lesson_id": _lesson_db.id,
+                             "title": _lesson_db.title, "asset_count": len(_assets)},
+                duration_ms=int((time.monotonic() - _t_resolve) * 1000),
+                status="SUCCESS",
+            ))
+        else:
+            log_ctx.add_step(LogStep(
+                step_name="lesson_resolve",
+                service_name="lesson_resolver",
+                input_data={"message": message[:200]},
+                output_data={"lesson_no": _lesson_no, "error": "课程尚未初始化或课节不存在"},
+                duration_ms=int((time.monotonic() - _t_resolve) * 1000),
+                status="FAILED",
+            ))
+
     # 5. 保存用户消息（仅保存原始文字，不存储 base64）
     user_msg_text = message if message else "（发送了一张图片）"
     await conversation_service.add_message(db, conv.id, "user", user_msg_text)
@@ -186,7 +234,10 @@ async def ask_rag(
     # 6. 根据意图路由处理
     try:
         answer, _ = await rag_service.route_by_intent(
-            db, conv.id, resolved, intent_result.intent, history_text, log_ctx=log_ctx
+            db, conv.id, resolved, intent_result.intent, history_text,
+            lesson_id=lesson_info.lesson_id if lesson_info else None,
+            lesson_info=lesson_info,
+            log_ctx=log_ctx,
         )
     except (ValueError, RuntimeError) as e:
         logger.warning("路由处理失败: %s", e)
@@ -210,6 +261,10 @@ async def ask_rag(
             intent=intent_result.intent,
             image_understanding=image_understanding,
         )
+
+    # 若课节检索降级了，更新 lesson_context 的 fallback 标志
+    if lesson_context and answer.lesson_fallback:
+        lesson_context["fallback"] = True
 
     duration_ms = int((time.monotonic() - t0) * 1000)
     log_ctx.finalize(answer.content, len(answer.sources))
@@ -237,6 +292,7 @@ async def ask_rag(
         confidence=intent_result.confidence,
         resolved_question=resolved,
         image_understanding=image_understanding,
+        lesson_context=lesson_context,
     )
 
 

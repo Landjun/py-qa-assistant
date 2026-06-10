@@ -43,6 +43,7 @@ class DocumentChunk(Base):
     char_count: Mapped[int] = mapped_column(Integer, nullable=False)
     embedding: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # numpy float32 bytes
     image_path: Mapped[str | None] = mapped_column(VARCHAR(500), nullable=True)  # 关联截图路径
+    lesson_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)  # 关联课节 ID
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     document: Mapped["Document"] = relationship("Document", back_populates="chunks")

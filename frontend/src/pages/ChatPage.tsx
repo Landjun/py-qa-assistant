@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { ask, type RAGAnswer, type BugDetail, type SourceInfo, type ImageUnderstanding } from "../api/chat";
+import { ask, type RAGAnswer, type BugDetail, type SourceInfo, type ImageUnderstanding, type LessonContext } from "../api/chat";
 import {
   listConversations,
   getMessages,
@@ -74,6 +74,52 @@ function ImageBadge({ iu }: { iu: ImageUnderstanding }) {
       )}
       {iu.summary && (
         <span className="text-purple-500">— {iu.summary}</span>
+      )}
+    </div>
+  );
+}
+
+// ─── 课节资源面板 ─────────────────────────────────────────────────────────────
+
+function LessonPanel({ ctx }: { ctx: LessonContext }) {
+  const ICON: Record<string, string> = { slide: "📄", code: "🐍", other: "📦" };
+  return (
+    <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="text-base">📚</span>
+        <span className="font-semibold text-teal-800">
+          第 {ctx.lesson_no} 节：{ctx.title}
+        </span>
+        {ctx.fallback && (
+          <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700">
+            课件暂未入库 · 通用解答
+          </span>
+        )}
+      </div>
+
+      {ctx.summary && (
+        <p className="mb-2 text-xs leading-relaxed text-teal-700">{ctx.summary}</p>
+      )}
+
+      {ctx.assets.length > 0 ? (
+        <div className="space-y-1">
+          {ctx.assets.map((a, i) => (
+            <a
+              key={i}
+              href={a.url}
+              download={a.filename}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 rounded border border-teal-200 bg-white px-2.5 py-1.5 text-xs text-teal-700 hover:bg-teal-100"
+            >
+              <span>{ICON[a.asset_type] ?? "📎"}</span>
+              <span className="flex-1 truncate font-medium">{a.filename}</span>
+              <span className="shrink-0 text-teal-400">↓ 下载</span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-teal-500">该节暂无上传课件/代码</p>
       )}
     </div>
   );
@@ -324,6 +370,7 @@ type UIMessage =
       durationMs?: number;
       intent?: string;
       imageUnderstanding?: ImageUnderstanding;
+      lessonContext?: LessonContext;
     }
   | { role: "retrieval"; query: string; results: RetrievalResult[]; durationMs: number }
   | { role: "error"; text: string };
@@ -359,6 +406,7 @@ function MessageItem({ msg }: { msg: UIMessage }) {
       <div className="flex justify-start">
         <div className="w-full max-w-[92%] space-y-1.5">
           {msg.imageUnderstanding && <ImageBadge iu={msg.imageUnderstanding} />}
+          {msg.lessonContext && <LessonPanel ctx={msg.lessonContext} />}
           {msg.answer.bug_detail ? (
             <BugAnswerCard
               bug={msg.answer.bug_detail}
@@ -573,6 +621,7 @@ export default function ChatPage() {
             durationMs: res.duration_ms,
             intent: res.intent || undefined,
             imageUnderstanding: res.image_understanding ?? undefined,
+            lessonContext: res.lesson_context ?? undefined,
           },
         ]);
       } else {
