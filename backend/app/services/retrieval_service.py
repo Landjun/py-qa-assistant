@@ -16,6 +16,7 @@ class RetrievalResult:
     document_id: int
     chunk_id: int
     score: float
+    image_path: str | None = None
 
 
 def _add_log_step(log_ctx, step_name: str, service_name: str, input_data: dict, output_data: dict, t0: float, status: str, error_message: str = "") -> None:
@@ -108,6 +109,7 @@ async def search(
                     document_id=doc.id,
                     chunk_id=chunk.id,
                     score=round(score, 4),
+                    image_path=chunk.image_path,
                 ))
 
         _add_log_step(log_ctx, "retrieval", "sqlite",

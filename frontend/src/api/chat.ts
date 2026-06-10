@@ -35,6 +35,7 @@ export interface SourceInfo {
   chunk_id: number;
   source: string;
   score: number;
+  image_path?: string | null;
 }
 
 export interface BugDetail {

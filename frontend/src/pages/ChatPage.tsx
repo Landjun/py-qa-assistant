@@ -13,6 +13,31 @@ import { useAuthStore } from "../store/auth";
 
 // ─── RAG 答案卡片 ─────────────────────────────────────────────────────────────
 
+function SourceImage({ path, alt }: { path: string; alt: string }) {
+  const [enlarged, setEnlarged] = useState(false);
+  const url = `/static/${path}`;
+  return (
+    <>
+      <img
+        src={url}
+        alt={alt}
+        onClick={() => setEnlarged(true)}
+        className="mt-1.5 h-16 w-auto cursor-zoom-in rounded border border-indigo-200 object-cover hover:opacity-90"
+        title="点击放大"
+        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+      />
+      {enlarged && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          onClick={() => setEnlarged(false)}
+        >
+          <img src={url} alt={alt} className="max-h-[90vh] max-w-[90vw] rounded-lg shadow-2xl" />
+        </div>
+      )}
+    </>
+  );
+}
+
 function SourcesPanel({ sources }: { sources: SourceInfo[] }) {
   if (sources.length === 0) {
     return <p className="text-xs italic text-gray-400">本次回答未引用知识库</p>;
@@ -20,13 +45,16 @@ function SourcesPanel({ sources }: { sources: SourceInfo[] }) {
   return (
     <div className="rounded border border-indigo-100 bg-indigo-50 p-3">
       <p className="mb-2 text-xs font-semibold text-indigo-600">引用来源</p>
-      <div className="space-y-1">
+      <div className="space-y-2">
         {sources.map((s, i) => (
-          <div key={i} className="flex items-center justify-between text-xs">
-            <span className="truncate text-gray-700" title={s.source}>{s.source}</span>
-            <span className="ml-2 shrink-0 text-gray-400">
-              chunk:{s.chunk_id} · {(s.score * 100).toFixed(1)}%
-            </span>
+          <div key={i} className="text-xs">
+            <div className="flex items-center justify-between">
+              <span className="truncate text-gray-700" title={s.source}>{s.source}</span>
+              <span className="ml-2 shrink-0 text-gray-400">
+                chunk:{s.chunk_id} · {(s.score * 100).toFixed(1)}%
+              </span>
+            </div>
+            {s.image_path && <SourceImage path={s.image_path} alt={s.source} />}
           </div>
         ))}
       </div>
@@ -237,6 +265,9 @@ function RetrievalResultCard({ result, rank }: { result: RetrievalResult; rank: 
         </div>
       </div>
       <p className="whitespace-pre-wrap leading-relaxed text-gray-700">{result.content}</p>
+      {result.image_path && (
+        <SourceImage path={result.image_path} alt={result.source} />
+      )}
     </div>
   );
 }

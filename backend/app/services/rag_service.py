@@ -23,6 +23,7 @@ class SourceInfo:
     chunk_id: int
     source: str
     score: float
+    image_path: str | None = None
 
 
 @dataclass
@@ -249,7 +250,7 @@ async def _rag_answer(db: AsyncSession, question: str, system_prompt: str, log_c
         parts: list[str] = []
         for r in retrieval_results:
             parts.append(f"【来源：{r.source}】\n{r.content}")
-            sources.append(SourceInfo(document_id=r.document_id, chunk_id=r.chunk_id, source=r.source, score=r.score))
+            sources.append(SourceInfo(document_id=r.document_id, chunk_id=r.chunk_id, source=r.source, score=r.score, image_path=r.image_path))
         knowledge_context = "\n\n".join(parts)
     else:
         knowledge_context = "（暂无相关知识库内容，请根据 Python 基础知识尽量回答）"
@@ -287,7 +288,7 @@ async def _bug_rag_answer(
         parts: list[str] = []
         for r in retrieval_results:
             parts.append(f"【来源：{r.source}】\n{r.content}")
-            sources.append(SourceInfo(document_id=r.document_id, chunk_id=r.chunk_id, source=r.source, score=r.score))
+            sources.append(SourceInfo(document_id=r.document_id, chunk_id=r.chunk_id, source=r.source, score=r.score, image_path=r.image_path))
         knowledge_context = "\n\n".join(parts)
     else:
         knowledge_context = "（暂无相关知识库内容）"

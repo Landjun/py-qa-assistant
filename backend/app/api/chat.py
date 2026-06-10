@@ -32,6 +32,7 @@ class SourceInfoOut(BaseModel):
     chunk_id: int
     source: str
     score: float
+    image_path: str | None = None
 
 
 class BugDetailOut(BaseModel):

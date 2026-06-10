@@ -35,6 +35,7 @@ async def create_document(
             title_path=chunk.title_path,
             content=chunk.content,
             char_count=chunk.char_count,
+            image_path=chunk.image_path,
         )
         db.add(rec)
         chunk_records.append(rec)

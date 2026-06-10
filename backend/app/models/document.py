@@ -1,7 +1,7 @@
 """文档 & 分块 ORM 模型。"""
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, LargeBinary, String, Text
+from sqlalchemy import DateTime, ForeignKey, Integer, LargeBinary, String, Text, VARCHAR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -42,6 +42,7 @@ class DocumentChunk(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     char_count: Mapped[int] = mapped_column(Integer, nullable=False)
     embedding: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)  # numpy float32 bytes
+    image_path: Mapped[str | None] = mapped_column(VARCHAR(500), nullable=True)  # 关联截图路径
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     document: Mapped["Document"] = relationship("Document", back_populates="chunks")

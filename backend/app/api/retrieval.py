@@ -23,6 +23,7 @@ class RetrievalResultOut(BaseModel):
     document_id: int
     chunk_id: int
     score: float
+    image_path: str | None = None
 
 
 class SearchResponse(BaseModel):
@@ -56,6 +57,7 @@ async def search(
                 document_id=r.document_id,
                 chunk_id=r.chunk_id,
                 score=r.score,
+                image_path=r.image_path,
             )
             for r in results
         ],

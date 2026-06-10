@@ -42,6 +42,7 @@ async def init_db() -> None:
             "ALTER TABLE document_chunks ADD COLUMN embedding BLOB",
             "ALTER TABLE qa_logs ADD COLUMN user_id INTEGER",
             "ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'student'",
+            "ALTER TABLE document_chunks ADD COLUMN image_path VARCHAR(500)",
         ]
         for sql in migrations:
             try:

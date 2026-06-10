@@ -68,6 +68,9 @@ _INTENT_SYSTEM = """\
 - 文件读写、JSON、CSV、正则、时间处理
 - requests、FastAPI、Flask、爬虫基础
 - uv、虚拟环境、包管理
+- pip 安装、pip 太慢、pip 换源、国内镜像、清华源、阿里源
+- Python 安装、PATH 配置、Add to PATH、环境变量
+- PyCharm 使用、创建项目、选择解释器、配置虚拟环境
 - "这个知识点怎么理解"
 - "这个代码是什么意思"
 - "帮我讲懂这个 Python 概念"

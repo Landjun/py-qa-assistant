@@ -29,6 +29,8 @@ from app.services import faiss_service
 
 # frontend/dist 相对于项目根目录
 _DIST = Path(__file__).parent.parent.parent / "frontend" / "dist"
+# backend/static：FAQ 截图等静态资源
+_STATIC = Path(__file__).parent.parent / "static"
 
 logging.basicConfig(level=logging.INFO)
 
@@ -63,6 +65,10 @@ def create_app() -> FastAPI:
     app.include_router(logs_router)
     app.include_router(retrieval_router)
     app.include_router(settings_router)
+
+    # FAQ 截图等后端静态资源
+    if _STATIC.exists():
+        app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
     # 生产模式：托管前端静态文件
     if _DIST.exists():

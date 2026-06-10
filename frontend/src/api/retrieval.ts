@@ -6,6 +6,7 @@ export interface RetrievalResult {
   document_id: number;
   chunk_id: number;
   score: number;
+  image_path?: string | null;
 }
 
 export interface SearchResponse {
