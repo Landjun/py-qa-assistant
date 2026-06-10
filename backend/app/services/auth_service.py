@@ -46,6 +46,24 @@ def decode_access_token(token: str) -> dict:
 
 # ─── FastAPI 依赖 ─────────────────────────────────────────────────────────────
 
+def require_roles(*roles: str):
+    """返回一个 FastAPI 依赖，校验当前用户 role 是否在允许列表内，否则抛 403。
+
+    用法：Depends(require_roles("admin", "teacher"))
+    """
+    from typing import Callable
+
+    async def _check(current_user=Depends(get_current_user)) -> "User":  # type: ignore[name-defined]
+        if current_user.role not in roles:
+            raise HTTPException(
+                status_code=403,
+                detail=f"无权限访问，需要角色：{' 或 '.join(roles)}",
+            )
+        return current_user
+
+    return _check
+
+
 async def get_optional_user_id(
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> int | None:

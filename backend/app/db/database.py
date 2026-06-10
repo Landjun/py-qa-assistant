@@ -41,6 +41,7 @@ async def init_db() -> None:
         migrations = [
             "ALTER TABLE document_chunks ADD COLUMN embedding BLOB",
             "ALTER TABLE qa_logs ADD COLUMN user_id INTEGER",
+            "ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'student'",
         ]
         for sql in migrations:
             try:
@@ -60,19 +61,19 @@ async def seed_db() -> None:
     from app.models.user import User
     from app.services.auth_service import hash_password
 
-    # 账号定义：(email, 密码来源字段名, 角色说明)
+    # 账号定义：(email, 密码, role, 角色说明)
     _ACCOUNTS = [
-        ("admin@pyqa.com",    settings.seed_admin_password, "管理员"),
-        ("test1@pyqa.com",    settings.seed_test_password,  "测试账号1"),
-        ("test2@pyqa.com",    settings.seed_test_password,  "测试账号2"),
-        ("test3@pyqa.com",    settings.seed_test_password,  "测试账号3"),
-        ("test4@pyqa.com",    settings.seed_test_password,  "测试账号4"),
-        ("test5@pyqa.com",    settings.seed_test_password,  "测试账号5"),
-        ("qa1@pyqa.com",      settings.seed_qa_password,    "学院答疑1"),
-        ("qa2@pyqa.com",      settings.seed_qa_password,    "学院答疑2"),
-        ("qa3@pyqa.com",      settings.seed_qa_password,    "学院答疑3"),
-        ("qa4@pyqa.com",      settings.seed_qa_password,    "学院答疑4"),
-        ("qa5@pyqa.com",      settings.seed_qa_password,    "学院答疑5"),
+        ("admin@pyqa.com",    settings.seed_admin_password, "admin",   "管理员"),
+        ("test1@pyqa.com",    settings.seed_test_password,  "student", "测试账号1"),
+        ("test2@pyqa.com",    settings.seed_test_password,  "student", "测试账号2"),
+        ("test3@pyqa.com",    settings.seed_test_password,  "student", "测试账号3"),
+        ("test4@pyqa.com",    settings.seed_test_password,  "student", "测试账号4"),
+        ("test5@pyqa.com",    settings.seed_test_password,  "student", "测试账号5"),
+        ("qa1@pyqa.com",      settings.seed_qa_password,    "teacher", "学院答疑1"),
+        ("qa2@pyqa.com",      settings.seed_qa_password,    "teacher", "学院答疑2"),
+        ("qa3@pyqa.com",      settings.seed_qa_password,    "teacher", "学院答疑3"),
+        ("qa4@pyqa.com",      settings.seed_qa_password,    "teacher", "学院答疑4"),
+        ("qa5@pyqa.com",      settings.seed_qa_password,    "teacher", "学院答疑5"),
     ]
 
     missing_passwords = [
@@ -87,16 +88,17 @@ async def seed_db() -> None:
         return
 
     async with AsyncSessionLocal() as db:
-        for email, password, label in _ACCOUNTS:
+        for email, password, role, label in _ACCOUNTS:
             pw_hash = await asyncio.to_thread(hash_password, password)
             result = await db.execute(select(User).where(User.email == email))
             user = result.scalar_one_or_none()
             if user is None:
-                db.add(User(email=email, password_hash=pw_hash))
+                db.add(User(email=email, password_hash=pw_hash, role=role))
                 logger.info("种子账号创建: %s (%s)", email, label)
             else:
                 user.password_hash = pw_hash
-                logger.info("种子账号密码同步: %s (%s)", email, label)
+                user.role = role
+                logger.info("种子账号同步: %s (%s)", email, label)
         await db.commit()
         logger.info(
             "种子账号就绪: 管理员×1 测试×5 学院答疑×5  (共 %d 个)", len(_ACCOUNTS)

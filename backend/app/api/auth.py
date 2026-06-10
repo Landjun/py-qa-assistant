@@ -22,6 +22,7 @@ class LoginRequest(BaseModel):
 class UserOut(BaseModel):
     id: int
     email: str
+    role: str
 
 
 class LoginResponse(BaseModel):
@@ -39,10 +40,13 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)) -> LoginR
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
 
     token = create_access_token(user.id, user.email)
-    logger.info("用户登录成功: %s", user.email)
-    return LoginResponse(access_token=token, user=UserOut(id=user.id, email=user.email))
+    logger.info("用户登录成功: %s role=%s", user.email, user.role)
+    return LoginResponse(
+        access_token=token,
+        user=UserOut(id=user.id, email=user.email, role=user.role),
+    )
 
 
 @router.get("/me", response_model=UserOut)
 async def me(current_user: User = Depends(get_current_user)) -> UserOut:
-    return UserOut(id=current_user.id, email=current_user.email)
+    return UserOut(id=current_user.id, email=current_user.email, role=current_user.role)
