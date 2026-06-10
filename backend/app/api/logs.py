@@ -9,7 +9,10 @@ from sqlalchemy.orm import selectinload
 
 from app.db.database import get_db
 from app.models.qa_log import QALog, QALogStep
-from app.services.auth_service import get_current_user
+from app.models.user import User
+from app.services.auth_service import require_roles
+
+_admin_teacher = require_roles("admin", "teacher")
 
 logger = logging.getLogger("app.api.logs")
 router = APIRouter(prefix="/api/logs", tags=["logs"])
@@ -59,7 +62,7 @@ async def list_logs(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user: User = Depends(_admin_teacher),
 ) -> dict:
     stmt = select(QALog).order_by(QALog.created_at.desc())
     if keyword:
@@ -87,7 +90,7 @@ async def list_logs(
 async def get_log(
     log_id: int,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user: User = Depends(_admin_teacher),
 ) -> dict:
     stmt = select(QALog).where(QALog.id == log_id).options(selectinload(QALog.steps))
     log = (await db.execute(stmt)).scalar_one_or_none()

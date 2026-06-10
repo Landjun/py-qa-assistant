@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.schemas.chat import QAResponse
+from app.models.user import User
 from app.services import conversation_service, deepseek_service, intent_service, qa_log_service, rag_service
-from app.services.auth_service import get_optional_user_id
+from app.services.auth_service import get_current_user, require_roles
 from app.services.intent_service import IntentResult
 from app.services.qa_log_service import QALogContext
 
@@ -87,7 +88,9 @@ async def _safe_recognize_intent(history_text: str, message: str, log_ctx=None) 
 
 @router.post("/intent", response_model=IntentResponse)
 async def get_intent(
-    req: AskRequest, db: AsyncSession = Depends(get_db)
+    req: AskRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_roles("admin", "teacher")),
 ) -> IntentResponse:
     """独立意图识别接口（调试 / 测试用）。"""
     message = req.message.strip()
@@ -117,7 +120,7 @@ async def ask_rag(
     req: AskRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    user_id: int | None = Depends(get_optional_user_id),
+    current_user: User = Depends(get_current_user),
 ) -> RAGResponse:
     """意图识别 → 路由 → RAG 问答 / 闲聊 / 反馈处理，自动保存会话。"""
     message = req.message.strip()
@@ -125,9 +128,12 @@ async def ask_rag(
         return RAGResponse(success=False, error="message 不能为空")
 
     t0 = time.monotonic()
+    user_id = current_user.id
 
-    # 1. 获取/创建会话
-    conv = await conversation_service.get_or_create_conversation(db, req.conversation_id, message)
+    # 1. 获取/创建会话（归属当前登录用户）
+    conv = await conversation_service.get_or_create_conversation(
+        db, req.conversation_id, message, user_id=user_id
+    )
 
     # 初始化日志上下文
     log_ctx = QALogContext(conversation_id=conv.id, question=message, user_id=user_id)
@@ -201,7 +207,9 @@ async def ask_rag(
 
 @router.post("/simple", response_model=QAResponse)
 async def simple_ask(
-    req: AskRequest, db: AsyncSession = Depends(get_db)
+    req: AskRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_roles("admin", "teacher")),
 ) -> QAResponse:
     """直接调用 DeepSeek（不做意图识别，不检索知识库），保存会话。"""
     if not req.message.strip():

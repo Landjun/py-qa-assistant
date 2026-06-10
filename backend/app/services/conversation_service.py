@@ -2,19 +2,18 @@
 import json
 import logging
 
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.models.conversation import Conversation, Message
 
 logger = logging.getLogger("app.services.conversation")
 
-DEFAULT_USER_ID = 1
 
-
-async def create_conversation(db: AsyncSession, title: str = "新会话") -> Conversation:
-    conv = Conversation(user_id=DEFAULT_USER_ID, title=title)
+async def create_conversation(
+    db: AsyncSession, title: str = "新会话", user_id: int = 0
+) -> Conversation:
+    conv = Conversation(user_id=user_id, title=title)
     db.add(conv)
     await db.commit()
     await db.refresh(conv)
@@ -22,26 +21,39 @@ async def create_conversation(db: AsyncSession, title: str = "新会话") -> Con
 
 
 async def get_or_create_conversation(
-    db: AsyncSession, conversation_id: int | None, first_message: str
+    db: AsyncSession,
+    conversation_id: int | None,
+    first_message: str,
+    user_id: int = 0,
 ) -> Conversation:
-    """获取已有会话，或自动创建新会话（标题取问题前 20 字）。"""
+    """获取已有会话（归属一致才复用），否则自动创建新会话。"""
     if conversation_id is not None:
         conv = await db.get(Conversation, conversation_id)
-        if conv:
+        if conv and conv.user_id == user_id:
             return conv
-        logger.warning("conversation_id=%d 不存在，自动创建新会话", conversation_id)
+        if conv:
+            logger.warning(
+                "conversation_id=%d 归属不匹配，自动创建新会话（user_id=%d）",
+                conversation_id, user_id,
+            )
+        else:
+            logger.warning("conversation_id=%d 不存在，自动创建新会话", conversation_id)
 
     title = first_message[:20].strip() or "新会话"
-    return await create_conversation(db, title)
+    return await create_conversation(db, title, user_id)
 
 
-async def list_conversations(db: AsyncSession) -> list[Conversation]:
+async def list_conversations(db: AsyncSession, user_id: int) -> list[Conversation]:
     result = await db.execute(
         select(Conversation)
-        .where(Conversation.user_id == DEFAULT_USER_ID)
+        .where(Conversation.user_id == user_id)
         .order_by(Conversation.updated_at.desc())
     )
     return list(result.scalars().all())
+
+
+async def get_conversation(db: AsyncSession, conversation_id: int) -> Conversation | None:
+    return await db.get(Conversation, conversation_id)
 
 
 async def get_conversation_messages(
@@ -55,10 +67,14 @@ async def get_conversation_messages(
     return list(result.scalars().all())
 
 
-async def delete_conversation(db: AsyncSession, conversation_id: int) -> bool:
+async def delete_conversation(
+    db: AsyncSession, conversation_id: int, user_id: int
+) -> bool:
     conv = await db.get(Conversation, conversation_id)
     if not conv:
         return False
+    if conv.user_id != user_id:
+        raise PermissionError("无权限删除他人会话")
     await db.delete(conv)
     await db.commit()
     return True
@@ -78,7 +94,6 @@ async def add_message(
         extra_json=json.dumps(extra, ensure_ascii=False) if extra else None,
     )
     db.add(msg)
-    # 同时更新会话的 updated_at
     conv = await db.get(Conversation, conversation_id)
     if conv:
         from datetime import datetime, timezone

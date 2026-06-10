@@ -8,7 +8,12 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
+from app.models.user import User
 from app.services import document_service
+from app.services.auth_service import require_roles
+
+_admin_only = require_roles("admin")
+_admin_teacher = require_roles("admin", "teacher")
 
 
 def _decode_filename(raw: str) -> str:
@@ -62,6 +67,7 @@ class DocumentOut(BaseModel):
 async def upload_document(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(_admin_only),
 ) -> DocumentOut:
     """上传 Markdown 文件，自动分块入库。"""
     # 文件大小检查（先读全部内容）
@@ -87,17 +93,22 @@ async def upload_document(
 
 
 @router.get("", response_model=list[DocumentOut])
-async def list_documents(db: AsyncSession = Depends(get_db)) -> list[DocumentOut]:
-    """获取所有文档列表。"""
+async def list_documents(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(_admin_teacher),
+) -> list[DocumentOut]:
+    """获取所有文档列表（admin/teacher）。"""
     docs = await document_service.list_documents(db)
     return [DocumentOut.model_validate(d) for d in docs]
 
 
 @router.get("/{document_id}", response_model=DocumentOut)
 async def get_document(
-    document_id: int, db: AsyncSession = Depends(get_db)
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(_admin_teacher),
 ) -> DocumentOut:
-    """获取单个文档详情。"""
+    """获取单个文档详情（admin/teacher）。"""
     doc = await document_service.get_document(db, document_id)
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -106,9 +117,11 @@ async def get_document(
 
 @router.get("/{document_id}/chunks", response_model=list[ChunkOut])
 async def get_chunks(
-    document_id: int, db: AsyncSession = Depends(get_db)
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(_admin_teacher),
 ) -> list[ChunkOut]:
-    """获取文档的所有分块。"""
+    """获取文档的所有分块（admin/teacher）。"""
     doc = await document_service.get_document(db, document_id)
     if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
@@ -118,9 +131,11 @@ async def get_chunks(
 
 @router.delete("/{document_id}", status_code=204)
 async def delete_document(
-    document_id: int, db: AsyncSession = Depends(get_db)
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(_admin_only),
 ) -> None:
-    """删除文档及其所有分块。"""
+    """删除文档及其所有分块（admin only）。"""
     ok = await document_service.delete_document(db, document_id)
     if not ok:
         raise HTTPException(status_code=404, detail="文档不存在")

@@ -5,7 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.db.database import get_db
+from app.models.user import User
 from app.services import document_service, faiss_service
+from app.services.auth_service import require_roles
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -22,7 +24,10 @@ class SystemStatus(BaseModel):
 
 
 @router.get("/status", response_model=SystemStatus)
-async def get_status(db: AsyncSession = Depends(get_db)) -> SystemStatus:
+async def get_status(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_roles("admin", "teacher")),
+) -> SystemStatus:
     """返回系统当前状态：文档数、分块数、向量数、模型配置。"""
     doc_count = await document_service.get_document_count(db)
     chunk_count = await document_service.get_chunk_count(db)

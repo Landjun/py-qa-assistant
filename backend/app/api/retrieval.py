@@ -4,7 +4,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
+from app.models.user import User
 from app.services import retrieval_service
+from app.services.auth_service import require_roles
 
 router = APIRouter(prefix="/api/retrieval", tags=["retrieval"])
 
@@ -33,6 +35,7 @@ class SearchResponse(BaseModel):
 async def search(
     req: SearchRequest,
     db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_roles("admin", "teacher")),
 ) -> SearchResponse:
     """语义检索，返回最相似的 top_k 条知识库片段。"""
     if not req.query.strip():
